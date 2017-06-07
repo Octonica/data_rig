@@ -1,0 +1,5 @@
+# data_rig extension
+comment = 'data type for multidimensional OLAP'
+default_version = '1.0'
+module_pathname = '$libdir/data_rig'
+relocatable = true
