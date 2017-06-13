@@ -17,3 +17,8 @@ CREATE TYPE fact (
 	OUTPUT = fact_out,
 	ALIGNMENT = integer
 );
+
+CREATE FUNCTION fact(integer[]) RETURNS fact
+AS 'MODULE_PATHNAME', 'fact_ia'
+LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
+

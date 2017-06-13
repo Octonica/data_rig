@@ -7,3 +7,9 @@ WHERE opc.oid >= 16384 AND NOT amvalidate(opc.oid);
 --------+---------
 (0 rows)
 
+SELECT fact(array[1,2,3]);
+   fact    
+-----------
+ (1, 2, 3)
+(1 row)
+

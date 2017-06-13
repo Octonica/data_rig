@@ -23,3 +23,9 @@ typedef struct FACT
 	int32_t		x[FLEXIBLE_ARRAY_MEMBER];
 } FACT;
 
+#define DIM_MASK			0x000000ff
+
+#define FACT_SIZE(_dim)	(offsetof(FACT, x) + sizeof(int32_t)*(_dim))
+
+#define SET_DIM(fact, _dim) ( (fact)->header = ((fact)->header & ~DIM_MASK) | (_dim) )
+#define DIM(fact)			( (fact)->header & DIM_MASK )
