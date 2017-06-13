@@ -22,3 +22,27 @@ CREATE FUNCTION fact(integer[]) RETURNS fact
 AS 'MODULE_PATHNAME', 'fact_ia'
 LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
 
+CREATE FUNCTION fact_contains(fact, fact)
+RETURNS bool
+AS 'MODULE_PATHNAME'
+LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
+
+CREATE FUNCTION fact_contained(fact, fact)
+RETURNS bool
+AS 'MODULE_PATHNAME'
+LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
+
+
+
+CREATE OPERATOR @> (
+	LEFTARG = fact, RIGHTARG = fact, PROCEDURE = fact_contains,
+	COMMUTATOR = '<@',
+	RESTRICT = contsel, JOIN = contjoinsel
+);
+
+
+CREATE OPERATOR <@ (
+	LEFTARG = fact, RIGHTARG = fact, PROCEDURE = fact_contained,
+	COMMUTATOR = '@>',
+	RESTRICT = contsel, JOIN = contjoinsel
+);

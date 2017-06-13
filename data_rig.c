@@ -24,6 +24,11 @@ PG_FUNCTION_INFO_V1(fact_out);
 PG_FUNCTION_INFO_V1(fact_ia);
 PG_FUNCTION_INFO_V1(fact_compress);
 PG_FUNCTION_INFO_V1(fact_decompress);
+PG_FUNCTION_INFO_V1(fact_union);
+PG_FUNCTION_INFO_V1(fact_consistent);
+PG_FUNCTION_INFO_V1(fact_penalty);
+PG_FUNCTION_INFO_V1(fact_contains);
+PG_FUNCTION_INFO_V1(fact_contained);
 
 Datum
 fact_in(PG_FUNCTION_ARGS)
@@ -91,13 +96,34 @@ isort_cmp(const void *a, const void *b, void *arg)
 }
 
 /* Sort the given data (len >= 2).  Return true if any duplicates found */
-bool
+static bool
 isort(int32_t *a, int len)
 {
 	bool		r = false;
 
 	qsort_arg(a, len, sizeof(int32_t), isort_cmp, (void *) &r);
 	return r;
+}
+
+static void adjust_fact(FACT* result, int dim)
+{
+	int32_t			i,size;
+	if(isort(result->x,dim) && dim>1)
+		{
+			int current = 1;
+			int32_t element = result->x[0];
+			for (i = 1; i < dim; i++)
+			{
+				if(element != result->x[i])
+				{
+					element = result->x[current] = result->x[i];
+					current++;
+				}
+			}
+			size = FACT_SIZE(current);
+			SET_DIM(result, current);
+			SET_VARSIZE(result, size);
+		}
 }
 
 Datum
@@ -127,18 +153,7 @@ fact_ia(PG_FUNCTION_ARGS)
 	for (i = 0; i < dim; i++)
 		result->x[i] = dur[i];
 
-	if(isort(result->x,dim))
-	{
-		int current = 0;
-		for (i = 0; i < dim; i++)
-		{
-			if(result->x[current] != result->x[i])
-			{
-				result->x[current] = result->x[i];
-				current++;
-			}
-		}
-	}
+	adjust_fact(result, dim);
 
 	PG_RETURN_POINTER(result);
 }
@@ -153,4 +168,171 @@ Datum
 fact_decompress(PG_FUNCTION_ARGS)
 {
 	PG_RETURN_DATUM(PG_GETARG_DATUM(0));
+}
+
+Datum
+fact_union(PG_FUNCTION_ARGS)
+{
+	GistEntryVector *entryvec = (GistEntryVector *) PG_GETARG_POINTER(0);
+	int		   *sizep = (int *) PG_GETARG_POINTER(1);
+	FACT	   *out = (FACT *) NULL;
+	FACT	   *tmp;
+	int			i,j;
+	int			dim = 0;
+	int			out_counter = 0;
+
+
+	for (i = 0; i < entryvec->n; i++)
+	{
+		tmp = (FACT*)entryvec->vector[i].key;
+		dim = + DIM(tmp);
+	}
+
+	out = (FACT*)palloc(FACT_SIZE(dim));
+
+	for (i = 0; i < entryvec->n; i++)
+	{
+		tmp = (FACT*)entryvec->vector[i].key;
+		for(j = 0;j<DIM(tmp);j++)
+		{
+			out->x[out_counter++]=tmp->x[j];
+		}
+	}
+
+	adjust_fact(out,dim);
+
+	*sizep = VARSIZE(out);
+
+	PG_RETURN_POINTER(out);
+}
+
+static bool
+contains(int32_t *da, int na, int32_t *db, int nb)
+{
+	int			i,
+				j,
+				n;
+
+	i = j = n = 0;
+	while (i < na && j < nb)
+	{
+		if (da[i] < db[j])
+			i++;
+		else if (da[i] == db[j])
+		{
+			n++;
+			i++;
+			j++;
+		}
+		else
+			break;				/* db[j] is not in da */
+	}
+
+	return (n == nb) ? TRUE : FALSE;
+}
+
+Datum
+fact_consistent(PG_FUNCTION_ARGS)
+{
+	GISTENTRY  *entry = (GISTENTRY *) PG_GETARG_POINTER(0);
+	FACT	   *key = (FACT*) entry->key;
+	FACT	   *query = (FACT*) PG_GETARG_POINTER(1);
+	//StrategyNumber strategy = (StrategyNumber) PG_GETARG_UINT16(2);
+
+	/* Oid		subtype = PG_GETARG_OID(3); */
+	bool	   *recheck = (bool *) PG_GETARG_POINTER(4);
+	bool		res;
+
+	/* All cases served by this function are exact */
+	*recheck = false;
+
+	/*
+	 * if entry is not leaf, use g_cube_internal_consistent, else use
+	 * g_cube_leaf_consistent
+	 */
+	if (GIST_LEAF(entry))
+		res = contains(query->x,DIM(query),key->x,DIM(key));
+	else
+		res = contains(key->x,DIM(key),query->x,DIM(query));
+
+	PG_FREE_IF_COPY(query, 1);
+	PG_RETURN_BOOL(res);
+}
+
+
+static int
+countloss(int32_t *da, int na, int32_t *db, int nb)
+{
+	int			i,
+				j,
+				n;
+
+	if(na==0 || nb==0)
+		return na;
+
+	i = j = n = 0;
+	while (i < na && j < nb)
+	{
+		if (da[i] < db[j])
+		{
+			i++;
+			n++;
+		}
+		else if (da[i] == db[j])
+		{
+			i++;
+			j++;
+		}
+		else
+		{
+			j++;
+		}
+	}
+
+	return n;
+}
+
+Datum
+fact_penalty(PG_FUNCTION_ARGS)
+{
+	GISTENTRY  *origentry = (GISTENTRY *) PG_GETARG_POINTER(0);
+	GISTENTRY  *newentry = (GISTENTRY *) PG_GETARG_POINTER(1);
+	float	   *result = (float *) PG_GETARG_POINTER(2);
+	FACT	   *n = (FACT*)newentry->key;
+	FACT	   *o = (FACT*)origentry->key;
+
+
+	*result = countloss(o->x,DIM(o),n->x,DIM(n));
+
+
+
+	PG_RETURN_FLOAT8(*result);
+}
+
+Datum
+fact_contains(PG_FUNCTION_ARGS)
+{
+	FACT	   *a = (FACT*) PG_GETARG_POINTER(0),
+			   *b = (FACT*) PG_GETARG_POINTER(1);
+	bool		res;
+
+	res = contains(a->x, DIM(a), b->x, DIM(b));
+
+	PG_FREE_IF_COPY(a, 0);
+	PG_FREE_IF_COPY(b, 1);
+	PG_RETURN_BOOL(res);
+}
+
+Datum
+fact_contained(PG_FUNCTION_ARGS)
+{
+	FACT	   *a = (FACT*) PG_GETARG_POINTER(0),
+			   *b = (FACT*) PG_GETARG_POINTER(1);
+	bool		res;
+
+	res = contains(b->x, DIM(b), a->x, DIM(a));
+
+	PG_FREE_IF_COPY(a, 0);
+	PG_FREE_IF_COPY(b, 1);
+	PG_RETURN_BOOL(res);
 }
