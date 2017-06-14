@@ -29,6 +29,9 @@ PG_FUNCTION_INFO_V1(fact_consistent);
 PG_FUNCTION_INFO_V1(fact_penalty);
 PG_FUNCTION_INFO_V1(fact_contains);
 PG_FUNCTION_INFO_V1(fact_contained);
+PG_FUNCTION_INFO_V1(fact_picksplit);
+PG_FUNCTION_INFO_V1(fact_intersect);
+
 
 Datum
 fact_in(PG_FUNCTION_ARGS)
@@ -177,31 +180,52 @@ fact_union(PG_FUNCTION_ARGS)
 	int		   *sizep = (int *) PG_GETARG_POINTER(1);
 	FACT	   *out = (FACT *) NULL;
 	FACT	   *tmp;
-	int			i,j;
-	int			dim = 0;
-	int			out_counter = 0;
-
-
-	for (i = 0; i < entryvec->n; i++)
-	{
-		tmp = (FACT*)entryvec->vector[i].key;
-		dim = + DIM(tmp);
-	}
+	int			i,j,k,n;
+	int32_t		*da,*db,na,nb;
+	int			dim = DIM((FACT*)entryvec->vector[0].key);
 
 	out = (FACT*)palloc(FACT_SIZE(dim));
+	tmp = (FACT*)entryvec->vector[0].key;
 
-	for (i = 0; i < entryvec->n; i++)
+	for(i = 0; i < dim; i++)
 	{
-		tmp = (FACT*)entryvec->vector[i].key;
-		for(j = 0;j<DIM(tmp);j++)
-		{
-			out->x[out_counter++]=tmp->x[j];
-		}
+		out->x[i] = tmp->x[i];
 	}
 
-	adjust_fact(out,dim);
+	for (n = 1; n < entryvec->n; n++)
+	{
+		tmp = (FACT*)entryvec->vector[n].key;
+		da = out->x;
+		na = dim;
+		db = tmp->x;
+		nb = DIM(tmp);
 
-	*sizep = VARSIZE(out);
+
+		i = j = k = 0;
+			while (i < na && j < nb)
+			{
+				if (da[i] < db[j])
+					i++;
+				else if (da[i] == db[j])
+				{
+					if (k == 0 || da[k - 1] != db[j])
+						da[k++] = db[j];
+					i++;
+					j++;
+				}
+				else
+					j++;
+			}
+		dim = k;
+	}
+
+
+
+
+	*sizep = FACT_SIZE(dim);
+	SET_DIM(out, dim);
+	SET_VARSIZE(out, *sizep);
+
 
 	PG_RETURN_POINTER(out);
 }
@@ -292,6 +316,39 @@ countloss(int32_t *da, int na, int32_t *db, int nb)
 	return n;
 }
 
+static int
+countdiff(int32_t *da, int na, int32_t *db, int nb)
+{
+	int			i,
+				j,
+				n;
+
+	if(na==0 || nb==0)
+		return na+nb;
+
+	i = j = n = 0;
+	while (i < na && j < nb)
+	{
+		if (da[i] < db[j])
+		{
+			i++;
+			n++;
+		}
+		else if (da[i] == db[j])
+		{
+			i++;
+			j++;
+		}
+		else
+		{
+			j++;
+			n++;
+		}
+	}
+
+	return n;
+}
+
 Datum
 fact_penalty(PG_FUNCTION_ARGS)
 {
@@ -302,7 +359,7 @@ fact_penalty(PG_FUNCTION_ARGS)
 	FACT	   *o = (FACT*)origentry->key;
 
 
-	*result = countloss(o->x,DIM(o),n->x,DIM(n));
+	*result = countloss(o->x,DIM(o),n->x,DIM(n))+(1/(DIM(o)+1.0));
 
 
 
@@ -335,4 +392,205 @@ fact_contained(PG_FUNCTION_ARGS)
 	PG_FREE_IF_COPY(a, 0);
 	PG_FREE_IF_COPY(b, 1);
 	PG_RETURN_BOOL(res);
+}
+
+
+static	FACT *
+fact_union_internal(FACT *a, FACT *b)
+{
+	int			i,j,k;
+	FACT	   *result;
+	int			dim;
+	int			size;
+	int32_t		*da,*db,*dr,na,nb;
+
+	/* trivial case */
+	if (a == b)
+		return a;
+
+	size = FACT_SIZE(Min(DIM(a),DIM(b)));
+		result = palloc0(size);
+
+	dr = result->x;
+
+	da = a->x;
+			na = DIM(a);
+			db = b->x;
+			nb = DIM(b);
+
+
+			i = j = k = 0;
+				while (i < na && j < nb)
+				{
+					if (da[i] < db[j])
+						i++;
+					else if (da[i] == db[j])
+					{
+						if (k == 0 || dr[k - 1] != db[j])
+							dr[k++] = db[j];
+						i++;
+						j++;
+					}
+					else
+						j++;
+				}
+			dim = k;
+
+	size = FACT_SIZE(dim);
+	SET_VARSIZE(result, size);
+	SET_DIM(result, dim);
+
+
+	return (result);
+}
+
+
+Datum
+fact_intersect(PG_FUNCTION_ARGS)
+{
+	FACT	   *a = (FACT*) PG_GETARG_POINTER(0),
+			   *b = (FACT*) PG_GETARG_POINTER(1);
+	FACT		*res;
+
+	res = fact_union_internal(b, a);
+
+	PG_FREE_IF_COPY(a, 0);
+	PG_FREE_IF_COPY(b, 1);
+	PG_RETURN_POINTER(res);
+}
+
+Datum
+fact_picksplit(PG_FUNCTION_ARGS)
+{
+	GistEntryVector *entryvec = (GistEntryVector *) PG_GETARG_POINTER(0);
+	GIST_SPLITVEC *v = (GIST_SPLITVEC *) PG_GETARG_POINTER(1);
+	OffsetNumber i,
+				j;
+	FACT	   *datum_alpha,
+			   *datum_beta;
+	FACT	   *datum_l,
+			   *datum_r;
+	FACT	   *union_dl,
+			   *union_dr;
+	bool		firsttime;
+	double		size_alpha,
+				size_beta;
+	double		size_waste,
+				waste;
+	double		size_l,
+				size_r;
+	int			nbytes;
+	OffsetNumber seed_1 = 1,
+				seed_2 = 2;
+	OffsetNumber *left,
+			   *right;
+	OffsetNumber maxoff;
+
+	maxoff = entryvec->n - 2;
+	nbytes = (maxoff + 2) * sizeof(OffsetNumber);
+	v->spl_left = (OffsetNumber *) palloc(nbytes);
+	v->spl_right = (OffsetNumber *) palloc(nbytes);
+
+	firsttime = true;
+	waste = 0.0;
+
+	for (i = FirstOffsetNumber; i < maxoff; i = OffsetNumberNext(i))
+	{
+		datum_alpha = DatumGetFact(entryvec->vector[i].key);
+		for (j = OffsetNumberNext(i); j <= maxoff; j = OffsetNumberNext(j))
+		{
+			datum_beta = DatumGetFact(entryvec->vector[j].key);
+
+
+			size_waste = countdiff(datum_alpha->x,DIM(datum_alpha),datum_beta->x,DIM(datum_beta));
+
+			/*
+			 * are these a more promising split than what we've already seen?
+			 */
+
+			if (size_waste > waste || firsttime)
+			{
+				waste = size_waste;
+				seed_1 = i;
+				seed_2 = j;
+				firsttime = false;
+			}
+		}
+	}
+
+	left = v->spl_left;
+	v->spl_nleft = 0;
+	right = v->spl_right;
+	v->spl_nright = 0;
+
+	datum_alpha = DatumGetFact(entryvec->vector[seed_1].key);
+	datum_l = datum_alpha;
+	size_l = DIM(datum_l);
+	datum_beta = DatumGetFact(entryvec->vector[seed_2].key);
+	datum_r = datum_beta;
+	size_r = DIM(datum_r);
+
+	/*
+	 * Now split up the regions between the two seeds.  An important property
+	 * of this split algorithm is that the split vector v has the indices of
+	 * items to be split in order in its left and right vectors.  We exploit
+	 * this property by doing a merge in the code that actually splits the
+	 * page.
+	 *
+	 * For efficiency, we also place the new index tuple in this loop. This is
+	 * handled at the very end, when we have placed all the existing tuples
+	 * and i == maxoff + 1.
+	 */
+
+	maxoff = OffsetNumberNext(maxoff);
+	for (i = FirstOffsetNumber; i <= maxoff; i = OffsetNumberNext(i))
+	{
+		/*
+		 * If we've already decided where to place this item, just put it on
+		 * the right list.  Otherwise, we need to figure out which page needs
+		 * the least enlargement in order to store the item.
+		 */
+
+		if (i == seed_1)
+		{
+			*left++ = i;
+			v->spl_nleft++;
+			continue;
+		}
+		else if (i == seed_2)
+		{
+			*right++ = i;
+			v->spl_nright++;
+			continue;
+		}
+
+		/* okay, which page needs least enlargement? */
+		datum_alpha = DatumGetFact(entryvec->vector[i].key);
+		union_dl = fact_union_internal(datum_l, datum_alpha);
+		union_dr = fact_union_internal(datum_r, datum_alpha);
+		size_alpha = DIM(union_dl);
+		size_beta = DIM(union_dr);
+
+		/* pick which page to add it to */
+		if (size_alpha - size_l < size_beta - size_r)
+		{
+			datum_l = union_dl;
+			size_l = size_alpha;
+			*left++ = i;
+			v->spl_nleft++;
+		}
+		else
+		{
+			datum_r = union_dr;
+			size_r = size_beta;
+			*right++ = i;
+			v->spl_nright++;
+		}
+	}
+	*left = *right = FirstOffsetNumber; /* sentinel value, see dosplit() */
+
+	v->spl_ldatum = PointerGetDatum(datum_l);
+	v->spl_rdatum = PointerGetDatum(datum_r);
+
+	PG_RETURN_POINTER(v);
 }

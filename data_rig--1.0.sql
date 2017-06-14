@@ -32,6 +32,11 @@ RETURNS bool
 AS 'MODULE_PATHNAME'
 LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
 
+CREATE FUNCTION fact_intersect(fact, fact)
+RETURNS fact
+AS 'MODULE_PATHNAME'
+LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
+
 
 
 CREATE OPERATOR @> (
@@ -46,3 +51,47 @@ CREATE OPERATOR <@ (
 	COMMUTATOR = '@>',
 	RESTRICT = contsel, JOIN = contjoinsel
 );
+
+
+CREATE FUNCTION fact_consistent(internal,fact,smallint,oid,internal)
+RETURNS bool
+AS 'MODULE_PATHNAME'
+LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
+
+CREATE FUNCTION fact_compress(internal)
+RETURNS internal
+AS 'MODULE_PATHNAME'
+LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
+
+CREATE FUNCTION fact_decompress(internal)
+RETURNS internal
+AS 'MODULE_PATHNAME'
+LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
+
+CREATE FUNCTION fact_penalty(internal,internal,internal)
+RETURNS internal
+AS 'MODULE_PATHNAME'
+LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
+
+CREATE FUNCTION fact_picksplit(internal, internal)
+RETURNS internal
+AS 'MODULE_PATHNAME'
+LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
+
+CREATE FUNCTION fact_union(internal, internal)
+RETURNS cube
+AS 'MODULE_PATHNAME'
+LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
+
+CREATE OPERATOR CLASS gist_fact_ops
+    DEFAULT FOR TYPE fact USING gist AS
+	OPERATOR	7	@> ,
+	OPERATOR	8	<@ ,
+
+	FUNCTION	1	fact_consistent (internal, fact, smallint, oid, internal),
+	FUNCTION	2	fact_union (internal, internal),
+	FUNCTION	3	fact_compress (internal),
+	FUNCTION	4	fact_decompress (internal),
+	FUNCTION	5	fact_penalty (internal, internal, internal),
+	FUNCTION	6	fact_picksplit (internal, internal),
+	FUNCTION	9	fact_decompress (internal);

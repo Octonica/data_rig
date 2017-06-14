@@ -29,3 +29,5 @@ typedef struct FACT
 
 #define SET_DIM(fact, _dim) ( (fact)->header = ((fact)->header & ~DIM_MASK) | (_dim) )
 #define DIM(fact)			( (fact)->header & DIM_MASK )
+
+#define DatumGetFact(x)	((FACT *) (x))
