@@ -83,6 +83,12 @@ RETURNS cube
 AS 'MODULE_PATHNAME'
 LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
 
+CREATE FUNCTION fact_same(cube, cube, internal)
+RETURNS internal
+AS 'MODULE_PATHNAME'
+LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
+
+
 CREATE OPERATOR CLASS gist_fact_ops
     DEFAULT FOR TYPE fact USING gist AS
 	OPERATOR	7	@> ,
@@ -94,4 +100,5 @@ CREATE OPERATOR CLASS gist_fact_ops
 	FUNCTION	4	fact_decompress (internal),
 	FUNCTION	5	fact_penalty (internal, internal, internal),
 	FUNCTION	6	fact_picksplit (internal, internal),
+	FUNCTION	7	fact_same (cube, cube, internal),
 	FUNCTION	9	fact_decompress (internal);

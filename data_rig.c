@@ -31,6 +31,7 @@ PG_FUNCTION_INFO_V1(fact_contains);
 PG_FUNCTION_INFO_V1(fact_contained);
 PG_FUNCTION_INFO_V1(fact_picksplit);
 PG_FUNCTION_INFO_V1(fact_intersect);
+PG_FUNCTION_INFO_V1(fact_same);
 
 
 Datum
@@ -277,7 +278,7 @@ fact_consistent(PG_FUNCTION_ARGS)
 	if (GIST_LEAF(entry))
 		res = contains(query->x,DIM(query),key->x,DIM(key));
 	else
-		res = contains(key->x,DIM(key),query->x,DIM(query));
+		res = true;//contains(key->x,DIM(key),query->x,DIM(query));
 
 	PG_FREE_IF_COPY(query, 1);
 	PG_RETURN_BOOL(res);
@@ -593,4 +594,38 @@ fact_picksplit(PG_FUNCTION_ARGS)
 	v->spl_rdatum = PointerGetDatum(datum_r);
 
 	PG_RETURN_POINTER(v);
+}
+
+static	int32
+fact_cmp(FACT *a, FACT *b)
+{
+	int			i;
+	int			dim;
+
+	if(DIM(a) != DIM(b))
+		return DIM(a) - DIM(b);
+
+	dim = DIM(a);
+
+	for(i = 0; i < dim; i++)
+	{
+		if(a->x[i]!=b->x[i])
+			return a->x[i] - b->x[i];
+	}
+	return 0;
+}
+
+Datum
+fact_same(PG_FUNCTION_ARGS)
+{
+	FACT	   *b1 = (FACT*)PG_GETARG_POINTER(0);
+	FACT	   *b2 = (FACT*)PG_GETARG_POINTER(1);
+	bool	   *result = (bool *) PG_GETARG_POINTER(2);
+
+	if (fact_cmp(b1, b2) == 0)
+		*result = TRUE;
+	else
+		*result = FALSE;
+
+	PG_RETURN_POINTER(result);
 }
