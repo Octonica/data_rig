@@ -31,3 +31,4 @@ typedef struct FACT
 #define DIM(fact)			( (fact)->header & DIM_MASK )
 
 #define DatumGetFact(x)	((FACT *) (x))
+#define CLS_MASK 0xFF000000

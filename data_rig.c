@@ -256,6 +256,39 @@ contains(int32_t *da, int na, int32_t *db, int nb)
 	return (n == nb) ? TRUE : FALSE;
 }
 
+
+static bool
+contains_internal(int32_t *da, int na, int32_t *db, int nb)
+{
+	int			i,
+				j,
+				n;
+	bool secondfail = false;
+	int32_t		currentcls = -1;
+
+	i = j = n = 0;
+	while (i < na && j < nb)
+	{
+		if(currentcls != (da[i] & CLS_MASK))
+		{
+			currentcls = da[i] & CLS_MASK;
+			secondfail = true;
+		}
+		if (da[i] < db[j])
+			i++;
+		else if (da[i] == db[j])
+		{
+			n++;
+			i++;
+			j++;
+		}
+		else
+			break;				/* db[j] is not in da */
+	}
+
+	return (n == nb) ? TRUE : FALSE;
+}
+
 Datum
 fact_consistent(PG_FUNCTION_ARGS)
 {
@@ -278,7 +311,7 @@ fact_consistent(PG_FUNCTION_ARGS)
 	if (GIST_LEAF(entry))
 		res = contains(query->x,DIM(query),key->x,DIM(key));
 	else
-		res = true;//contains(key->x,DIM(key),query->x,DIM(query));
+		res = contains_internal(key->x,DIM(key),query->x,DIM(query));
 
 	PG_FREE_IF_COPY(query, 1);
 	PG_RETURN_BOOL(res);
