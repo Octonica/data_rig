@@ -102,3 +102,8 @@ CREATE OPERATOR CLASS gist_fact_ops
 	FUNCTION	6	fact_picksplit (internal, internal),
 	FUNCTION	7	fact_same (cube, cube, internal),
 	FUNCTION	9	fact_decompress (internal);
+
+CREATE FUNCTION to_fact_number(integer, integer)
+RETURNS int4
+AS 'MODULE_PATHNAME'
+LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;

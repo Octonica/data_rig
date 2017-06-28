@@ -32,7 +32,15 @@ PG_FUNCTION_INFO_V1(fact_contained);
 PG_FUNCTION_INFO_V1(fact_picksplit);
 PG_FUNCTION_INFO_V1(fact_intersect);
 PG_FUNCTION_INFO_V1(fact_same);
+PG_FUNCTION_INFO_V1(to_fact_number);
 
+Datum
+to_fact_number(PG_FUNCTION_ARGS)
+{
+	int32_t dimension = PG_GETARG_INT32(0);
+	int32_t value = PG_GETARG_INT32(1);
+	PG_RETURN_INT32((dimension<<24) + value);
+}
 
 Datum
 fact_in(PG_FUNCTION_ARGS)
@@ -261,32 +269,55 @@ static bool
 contains_internal(int32_t *da, int na, int32_t *db, int nb)
 {
 	int			i,
-				j,
-				n;
-	bool secondfail = false;
-	int32_t		currentcls = -1;
+				j;
+	
+	bool afail = false;
+	bool bfail = false;
 
-	i = j = n = 0;
+	i = j = 0;
 	while (i < na && j < nb)
-	{
-		if(currentcls != (da[i] & CLS_MASK))
-		{
-			currentcls = da[i] & CLS_MASK;
-			secondfail = true;
-		}
+	{	
+
+		
 		if (da[i] < db[j])
+		{
 			i++;
+			if(GET_CLS(da[i]) != GET_CLS(db[i]))
+			{
+				afail = false;
+				bfail = true;
+			}
+			else
+			{
+				if(bfail)
+					return FALSE;
+				afail = true;
+			}
+		}
 		else if (da[i] == db[j])
 		{
-			n++;
 			i++;
 			j++;
 		}
 		else
-			break;				/* db[j] is not in da */
+		{
+			j++;
+			
+			if(GET_CLS(da[i]) != GET_CLS(db[i]))
+			{
+				afail = false;
+				bfail = true;
+			}
+			else
+			{
+				if(afail)
+					return FALSE;
+				bfail = true;
+			}
+		}
 	}
 
-	return (n == nb) ? TRUE : FALSE;
+	return TRUE;
 }
 
 Datum

@@ -24,6 +24,7 @@ typedef struct FACT
 } FACT;
 
 #define DIM_MASK			0x000000ff
+#define GET_CLS(_fact_number) (_fact_number & DIM_MASK)
 
 #define FACT_SIZE(_dim)	(offsetof(FACT, x) + sizeof(int32_t)*(_dim))
 
